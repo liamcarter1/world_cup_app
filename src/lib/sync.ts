@@ -120,21 +120,29 @@ async function shouldHitLiveApi(): Promise<boolean> {
   return !!liveOrSoon;
 }
 
-// Entry point for the cron route.
+// Min gap between real API hits (protects the free 100/day budget even if many
+// family members' browsers poll at once) and a safety cap on daily API calls.
+const THROTTLE_MS = 5 * 60 * 1000;
+const DAILY_API_CAP = 90;
+
+// Entry point for the cron route, the live poller, and the admin button.
 export async function runSync(opts: { force?: boolean } = {}): Promise<SyncResult> {
   const hasMatches = (await prisma.match.count()) > 0;
 
+  // Budget guards apply to the live API only, and never to a forced (admin) sync.
   if (process.env.FOOTBALL_API_KEY && hasMatches && !opts.force) {
     if (!(await shouldHitLiveApi())) {
-      return {
-        source: "skipped",
-        usedFallback: false,
-        teams: 0,
-        matches: 0,
-        champion: null,
-        skipped: true,
-        reason: "No live or imminent matches — preserving API budget.",
-      };
+      return skipped("No live or imminent matches — preserving API budget.");
+    }
+    const last = await prisma.syncLog.findFirst({ orderBy: { fetchedAt: "desc" } });
+    if (last && Date.now() - last.fetchedAt.getTime() < THROTTLE_MS) {
+      return skipped("Recently synced — throttled.");
+    }
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const today = await prisma.syncLog.count({ where: { fetchedAt: { gte: startOfDay } } });
+    if (today >= DAILY_API_CAP) {
+      return skipped("Daily API budget reached — try later.");
     }
   }
 
@@ -151,6 +159,18 @@ export async function runSync(opts: { force?: boolean } = {}): Promise<SyncResul
   });
 
   return result;
+}
+
+function skipped(reason: string): SyncResult {
+  return {
+    source: "skipped",
+    usedFallback: false,
+    teams: 0,
+    matches: 0,
+    champion: null,
+    skipped: true,
+    reason,
+  };
 }
 
 export function hasLiveMatch(matches: { status: string }[]): boolean {

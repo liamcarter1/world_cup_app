@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { TeamChip } from "@/components/TeamChip";
 import { FixtureRow } from "@/components/FixtureRow";
 import { ScorePoller } from "@/components/ScorePoller";
-import { getLeaderboard, getFixtures, getOwnerMap } from "@/lib/queries";
+import { getLeaderboard, getFixtures, getOwnerMap, getLiveWindow } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
 import { liveStatus, finishedStatus, PRIZE_POT } from "@/lib/theme";
 
@@ -20,7 +20,11 @@ export default async function MemberPage({
   if (!entry) notFound();
 
   const teamIds = new Set(entry.teams.map((t) => t.externalId));
-  const [owners, allFixtures] = await Promise.all([getOwnerMap(), getFixtures()]);
+  const [owners, allFixtures, liveWindow] = await Promise.all([
+    getOwnerMap(),
+    getFixtures(),
+    getLiveWindow(),
+  ]);
   const myFixtures = allFixtures.filter(
     (m) =>
       (m.homeTeam && teamIds.has(m.homeTeam.externalId)) ||
@@ -32,7 +36,7 @@ export default async function MemberPage({
 
   return (
     <div className="space-y-6">
-      <ScorePoller live={live.length > 0} />
+      <ScorePoller active={live.length > 0 || liveWindow} />
       <Link href="/members" className="text-sm text-wc-sky hover:underline">
         ← Back to family
       </Link>

@@ -120,6 +120,28 @@ export async function getOwnerMap(): Promise<
   );
 }
 
+// True when a match is live OR kicks off within the next ~15 min OR started in the
+// last ~3h — i.e. when the in-app poller should refresh scores.
+export async function getLiveWindow(): Promise<boolean> {
+  const now = Date.now();
+  const match = await prisma.match.findFirst({
+    where: {
+      OR: [
+        { status: { in: ["1H", "HT", "2H", "ET", "P", "BT", "SUSP", "INT"] } },
+        {
+          status: "NS",
+          kickoff: {
+            lte: new Date(now + 15 * 60 * 1000),
+            gte: new Date(now - 3 * 60 * 60 * 1000),
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  return !!match;
+}
+
 export async function getDrawStatus() {
   const draw = await prisma.draw.findFirst();
   const teamCount = await prisma.team.count();

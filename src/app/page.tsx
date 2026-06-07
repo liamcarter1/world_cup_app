@@ -11,6 +11,7 @@ import {
   getPrizes,
   getFixtures,
   getOwnerMap,
+  getLiveWindow,
 } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
 import { liveStatus, finishedStatus, APP_NAME } from "@/lib/theme";
@@ -44,10 +45,11 @@ export default async function Home() {
   }
 
   const leaderboard = await getLeaderboard();
-  const [prizes, owners, allFixtures] = await Promise.all([
+  const [prizes, owners, allFixtures, liveWindow] = await Promise.all([
     getPrizes(leaderboard),
     getOwnerMap(),
     getFixtures(),
+    getLiveWindow(),
   ]);
 
   const live = allFixtures.filter((m) => liveStatus(m.status));
@@ -61,7 +63,7 @@ export default async function Home() {
 
   return (
     <div className="space-y-6">
-      <ScorePoller live={live.length > 0} />
+      <ScorePoller active={live.length > 0 || liveWindow} />
 
       <section className="card flex flex-col items-center justify-between gap-3 bg-wc-gradient p-5 sm:flex-row">
         <div>

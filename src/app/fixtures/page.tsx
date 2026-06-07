@@ -1,13 +1,17 @@
 import { FixtureRow } from "@/components/FixtureRow";
 import { ScorePoller } from "@/components/ScorePoller";
-import { getFixtures, getOwnerMap } from "@/lib/queries";
+import { getFixtures, getOwnerMap, getLiveWindow } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
 import { liveStatus, ROUND_LABELS } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
 export default async function FixturesPage() {
-  const [owners, fixtures] = await Promise.all([getOwnerMap(), getFixtures()]);
+  const [owners, fixtures, liveWindow] = await Promise.all([
+    getOwnerMap(),
+    getFixtures(),
+    getLiveWindow(),
+  ]);
   const live = fixtures.filter((m) => liveStatus(m.status));
 
   // Group by round for readability.
@@ -21,7 +25,7 @@ export default async function FixturesPage() {
 
   return (
     <div className="space-y-6">
-      <ScorePoller live={live.length > 0} />
+      <ScorePoller active={live.length > 0 || liveWindow} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="display text-3xl">Fixtures</h1>

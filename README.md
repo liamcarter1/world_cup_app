@@ -67,9 +67,15 @@ Add an API-Football key to `.env`:
 FOOTBALL_API_KEY=your_key
 ```
 
-Sync from **/admin** ("Sync scores now") or let the Vercel Cron (`vercel.json`, every 10 min) do it.
-The sync is rate-budgeted: it only calls the API when a match is live or imminent, keeping well
-under the free tier's 100 requests/day.
+Live updates work on Vercel's **Hobby** plan (which only allows a daily cron):
+
+- During a match window the app's in-page poller calls `/api/live`, which runs a **server-throttled**
+  sync — at most ~1 real API call every 5 minutes plus a daily cap, so any number of phones polling
+  at once stays well under the free tier's 100 requests/day.
+- A daily Vercel cron (`/api/cron/sync`) gives a baseline refresh.
+- **/admin → "Sync scores now"** forces an immediate refresh any time.
+
+(On the Pro plan you can additionally bump the cron in `vercel.json` to e.g. `*/10 * * * *`.)
 
 ## Deploying to Vercel (shared, online)
 
