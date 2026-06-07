@@ -25,12 +25,14 @@ Built with **Next.js (App Router) + React + Tailwind + Prisma**, deployable to *
 
 Liam · Heidi · Sam · Liz P · Liz C · Phil
 
-## Quick start (local, no keys needed)
+## Quick start (local)
+
+Uses Postgres. The fastest path is a free [Neon](https://neon.tech) database.
 
 ```bash
 npm install
-cp .env.example .env        # SQLite + seed work out of the box
-npm run db:push             # create the SQLite schema
+cp .env.example .env        # then set DATABASE_URL to your Postgres URL
+npm run db:push             # create the schema
 npm run db:seed             # load 6 members + 48 teams + 104 fixtures
 npm run dev                 # http://localhost:3000
 ```
@@ -71,13 +73,16 @@ under the free tier's 100 requests/day.
 
 ## Deploying to Vercel (shared, online)
 
-1. Push to GitHub and import the repo into Vercel.
-2. Add the **Neon Postgres** integration → it sets `DATABASE_URL`.
-3. In `prisma/schema.prisma`, change the datasource `provider` to `"postgresql"`.
-4. Set env vars: `FOOTBALL_API_KEY`, `CRON_SECRET`, `ADMIN_PASSWORD`.
-5. Deploy. Run `npx prisma db push` + `npm run db:seed` against the Neon DB once.
+1. Import the repo into Vercel (or use the Vercel CLI / MCP deploy).
+2. Add a Postgres database: Vercel dashboard → **Storage → Create → Postgres (Neon)** and connect
+   it to the project. This injects `DATABASE_URL` automatically. (Or add a Neon URL as `DATABASE_URL`.)
+3. Set env vars: `SETUP_SECRET` (required), and optionally `FOOTBALL_API_KEY` (live scores),
+   `CRON_SECRET`, `ADMIN_PASSWORD`.
+4. Redeploy. The build runs `prisma db push` to create the schema.
+5. Seed once by visiting `https://<your-app>/api/setup?secret=<SETUP_SECRET>`.
 
 Everyone in the family then sees the same draw and live leaderboard from their own phones.
+The schema is created at build time; the one-time `/api/setup` call loads members + the real fixtures.
 
 ## Resetting
 

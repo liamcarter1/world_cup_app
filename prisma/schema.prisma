@@ -1,12 +1,13 @@
 // All together now — 2026 FIFA World Cup family sweepstake
-// SQLite for zero-config local dev; switch provider to "postgresql" for Neon/Vercel in prod.
+// Postgres (Neon / Vercel Postgres) for the hosted, shared deployment.
+// For local dev, point DATABASE_URL at any Postgres (e.g. a free Neon dev branch).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
