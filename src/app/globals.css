@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Archivo Narrow", "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+}
+
+html,
+body {
+  background: #0e1330;
+  color: #f7f7fb;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(106, 27, 154, 0.45), transparent),
+    radial-gradient(900px 500px at -10% 10%, rgba(58, 174, 224, 0.25), transparent),
+    linear-gradient(160deg, #0e1330 0%, #14215a 55%, #1a2b6b 100%);
+  background-attachment: fixed;
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    font-weight: 800;
+  }
+
+  .card {
+    @apply rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold
+      transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-wc-gold text-wc-charcoal shadow-glow hover:brightness-105;
+  }
+
+  .btn-ghost {
+    @apply btn border border-white/15 bg-white/5 text-white hover:bg-white/10;
+  }
+}
+
+/* Thin scrollbars to keep the dark theme clean */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}

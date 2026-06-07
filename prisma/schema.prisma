@@ -1,0 +1,94 @@
+// All together now — 2026 FIFA World Cup family sweepstake
+// SQLite for zero-config local dev; switch provider to "postgresql" for Neon/Vercel in prod.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Member {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  accentColor String
+  sortOrder   Int          @default(0)
+  assignments Assignment[]
+
+  @@index([sortOrder])
+}
+
+model Team {
+  id            String       @id @default(cuid())
+  externalId    String       @unique
+  name          String
+  code          String?
+  flag          String? // emoji or url
+  groupName     String
+  // cached scoring projections, recomputed on each sync
+  furthestRound Int          @default(0) // 0 group, 1 R32, 2 R16, 3 QF, 4 SF, 5 Final
+  eliminated    Boolean      @default(false)
+  isChampion    Boolean      @default(false)
+  goalsFor      Int          @default(0)
+  assignment    Assignment?
+  homeMatches   Match[]      @relation("home")
+  awayMatches   Match[]      @relation("away")
+
+  @@index([groupName])
+}
+
+// Single-allowed row enforces the one-time draw at the DB level.
+model Draw {
+  id          String       @id @default(cuid())
+  singleton   Int          @unique @default(1) // always 1 => only one Draw can ever exist
+  seed        String
+  locked      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  assignments Assignment[]
+}
+
+model Assignment {
+  id       String @id @default(cuid())
+  drawId   String
+  draw     Draw   @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  teamId   String @unique
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([drawId, teamId])
+  @@index([memberId])
+}
+
+model Match {
+  id           String   @id @default(cuid())
+  externalId   String   @unique
+  round        String // raw label e.g. "Group Stage", "Round of 32", "Final"
+  roundOrd     Int // 0 group, 1 R32, 2 R16, 3 QF, 4 SF, 5 Final
+  groupName    String?
+  kickoff      DateTime
+  venue        String?
+  status       String   @default("NS") // NS, 1H, HT, 2H, ET, P, FT, AET, PEN, PST, CANC, SUSP
+  homeTeamId   String?
+  homeTeam     Team?    @relation("home", fields: [homeTeamId], references: [id])
+  awayTeamId   String?
+  awayTeam     Team?    @relation("away", fields: [awayTeamId], references: [id])
+  homeGoals    Int?
+  awayGoals    Int?
+  winnerTeamId String?
+  updatedAt    DateTime @updatedAt
+
+  @@index([kickoff])
+  @@index([roundOrd])
+}
+
+model SyncLog {
+  id           String   @id @default(cuid())
+  source       String
+  fetchedAt    DateTime @default(now())
+  requestCount Int      @default(1)
+  ok           Boolean
+  note         String?
+}
