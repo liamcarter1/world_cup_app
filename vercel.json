@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "prisma generate && (prisma db push --skip-generate --accept-data-loss || echo 'skip db push (no DATABASE_URL yet)') && next build",
+  "buildCommand": "prisma generate && (DATABASE_URL=\"${DATABASE_URL:-${POSTGRES_PRISMA_URL:-$POSTGRES_URL}}\" prisma db push --skip-generate --accept-data-loss || echo 'skip db push (no database yet)') && next build",
   "crons": [
     {
       "path": "/api/cron/sync",
