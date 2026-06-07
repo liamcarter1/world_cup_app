@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { runSync } from "@/lib/sync";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Public, server-throttled live refresh. Called by the in-app poller during match
 // windows so scores update on Vercel's Hobby plan (which only allows daily cron).

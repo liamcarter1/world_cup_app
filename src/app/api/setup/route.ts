@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { seedDatabase } from "@/lib/setup";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // One-time (idempotent) initialisation for the hosted database: seeds members,
 // teams and fixtures. Protected by a secret. Safe to call again (upserts only).

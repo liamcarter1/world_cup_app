@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { runSync } from "@/lib/sync";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Called by Vercel Cron (and manually). Rate-budgeted inside runSync so it stays
 // under the API-Football free-tier limit. Protected by CRON_SECRET if set.
