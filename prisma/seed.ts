@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { applySnapshot } from "@/lib/sync";
-import { seedSnapshot } from "@/data/seed-fixtures";
+import { getSnapshotSafe } from "@/lib/providers";
 import { FAMILY_MEMBERS } from "@/lib/theme";
 
 // Idempotent seed: 6 family members + the 48 teams / 104 fixtures snapshot.
@@ -16,10 +16,13 @@ async function main() {
     });
   }
 
-  console.log("Seeding teams + fixtures from bundled snapshot…");
-  const result = await applySnapshot(seedSnapshot());
+  console.log("Seeding teams + fixtures (real 2026 schedule)…");
+  const { snapshot, usedFallback } = await getSnapshotSafe();
+  const result = await applySnapshot(snapshot);
   console.log(
-    `Seeded ${result.teams} teams and ${result.matches} matches (source: ${result.source}).`,
+    `Seeded ${result.teams} teams and ${result.matches} matches from "${snapshot.source}"${
+      usedFallback ? " (network unavailable — used bundled real schedule)" : ""
+    }.`,
   );
 
   const drawExists = await prisma.draw.findFirst();

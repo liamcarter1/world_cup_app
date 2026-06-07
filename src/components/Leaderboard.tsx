@@ -36,7 +36,7 @@ export function Leaderboard({ entries }: { entries: LeaderboardEntry[] }) {
                 {e.teamsAlive} alive · {e.goalsFor} goals
               </div>
             </div>
-            <span className="flex shrink-0 -space-x-1">
+            <span className="hidden shrink-0 -space-x-1 sm:flex">
               {e.teams.slice(0, 8).map((t) => (
                 <span
                   key={t.externalId}

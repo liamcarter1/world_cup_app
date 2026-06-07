@@ -65,7 +65,7 @@ export default async function MemberPage({
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section>
           <h2 className="display mb-3 text-lg">My 8 teams</h2>
           <div className="grid gap-2">

@@ -82,12 +82,12 @@ export default async function Home() {
         )}
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Leaderboard entries={leaderboard} />
           <section>
             <h2 className="display mb-3 text-lg">The family &amp; their teams</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {leaderboard.map((entry) => (
                 <MemberCard key={entry.memberId} entry={entry} />
               ))}

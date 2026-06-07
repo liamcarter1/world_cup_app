@@ -40,7 +40,7 @@ export function buildBracket(matches: MatchWithTeams[], owners: OwnerMap): Brack
   const ords = [1, 2, 3, 4, 5];
   return ords.map((ord) => {
     const roundMatches: BracketMatch[] = matches
-      .filter((m) => m.roundOrd === ord && m.round.toLowerCase() !== "third-place play-off")
+      .filter((m) => m.roundOrd === ord && !m.round.toLowerCase().includes("third"))
       .sort((a, b) => a.kickoff.getTime() - b.kickoff.getTime())
       .map((m) => {
         const played = ["FT", "AET", "PEN"].includes(m.status);

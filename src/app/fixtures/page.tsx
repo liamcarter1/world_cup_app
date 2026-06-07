@@ -38,7 +38,7 @@ export default async function FixturesPage() {
       {order.map((ord) => (
         <section key={ord}>
           <h2 className="display mb-3 text-lg text-white/80">{ROUND_LABELS[ord] ?? "Other"}</h2>
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {byRound
               .get(ord)!
               .map((m) => <FixtureRow key={m.id} m={toFixtureRow(m, owners)} />)}
