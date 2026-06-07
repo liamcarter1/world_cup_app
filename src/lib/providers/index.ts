@@ -3,14 +3,11 @@ import { SeedProvider } from "./seed";
 import { ApiFootballProvider } from "./apifootball";
 import { OpenFootballProvider } from "./openfootball";
 
-// Select the live data source by environment, with a guaranteed seed fallback.
-// Priority: API-Football (live in-play, if key) -> OpenFootball (real schedule, no key).
-// Both fall back to the bundled REAL seed snapshot if the network is unavailable.
-export function getProvider(): FootballDataProvider {
-  const key = process.env.FOOTBALL_API_KEY;
-  if (key && key.trim().length > 0) {
-    return new ApiFootballProvider(key.trim());
-  }
+// STRUCTURAL source (teams, groups, fixtures, who's playing each match): the free,
+// name-keyed openfootball feed, falling back to the bundled real snapshot offline.
+// This is the single source of truth for the schedule — API-Football is never used
+// here, so team/match identity is always stable (no duplication when a key is added).
+export function getStructuralProvider(): FootballDataProvider {
   return new OpenFootballProvider();
 }
 
@@ -19,13 +16,12 @@ export async function getSnapshotSafe(): Promise<{
   usedFallback: boolean;
   error?: string;
 }> {
-  const provider = getProvider();
+  const provider = getStructuralProvider();
   try {
     const snapshot = await provider.getSnapshot();
     if (!snapshot.teams.length) throw new Error("empty snapshot");
     return { snapshot, usedFallback: false };
   } catch (err) {
-    // Network/rate-limit failure -> bundled real schedule so the app still works.
     const snapshot = await new SeedProvider().getSnapshot();
     return {
       snapshot,
@@ -33,4 +29,11 @@ export async function getSnapshotSafe(): Promise<{
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+// LIVE-SCORE source (in-play scores only, overlaid onto existing matches): API-Football,
+// used only when a key is configured. Returns null when no key is set.
+export function getLiveProvider(): ApiFootballProvider | null {
+  const key = process.env.FOOTBALL_API_KEY;
+  return key && key.trim().length > 0 ? new ApiFootballProvider(key.trim()) : null;
 }

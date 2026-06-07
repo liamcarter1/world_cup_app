@@ -11,7 +11,7 @@ export const maxDuration = 60;
 // still results in at most ~1 real API call per 5 minutes.
 export async function GET() {
   try {
-    const result = await runSync();
+    const result = await runSync({ overlayOnly: true });
     if (!result.skipped) {
       for (const p of ["/", "/members", "/bracket", "/fixtures"]) revalidatePath(p);
     }

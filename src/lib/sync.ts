@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getSnapshotSafe } from "@/lib/providers";
+import { getSnapshotSafe, getLiveProvider } from "@/lib/providers";
 import { deriveTeamStates, type ScoringMatch, type ScoringTeam } from "@/lib/scoring";
 import { liveStatus } from "@/lib/theme";
 import type { ProviderSnapshot } from "@/lib/types";
@@ -125,38 +125,143 @@ async function shouldHitLiveApi(): Promise<boolean> {
 const THROTTLE_MS = 5 * 60 * 1000;
 const DAILY_API_CAP = 90;
 
-// Entry point for the cron route, the live poller, and the admin button.
-export async function runSync(opts: { force?: boolean } = {}): Promise<SyncResult> {
-  const hasMatches = (await prisma.match.count()) > 0;
+// Throttle + daily cap, counted only against real API-Football calls.
+async function withinApiBudget(): Promise<boolean> {
+  const last = await prisma.syncLog.findFirst({
+    where: { source: { startsWith: "api-football" } },
+    orderBy: { fetchedAt: "desc" },
+  });
+  if (last && Date.now() - last.fetchedAt.getTime() < THROTTLE_MS) return false;
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const today = await prisma.syncLog.count({
+    where: { source: { startsWith: "api-football" }, fetchedAt: { gte: startOfDay } },
+  });
+  return today < DAILY_API_CAP;
+}
 
-  // Budget guards apply to the live API only, and never to a forced (admin) sync.
-  if (process.env.FOOTBALL_API_KEY && hasMatches && !opts.force) {
-    if (!(await shouldHitLiveApi())) {
-      return skipped("No live or imminent matches — preserving API budget.");
-    }
-    const last = await prisma.syncLog.findFirst({ orderBy: { fetchedAt: "desc" } });
-    if (last && Date.now() - last.fetchedAt.getTime() < THROTTLE_MS) {
-      return skipped("Recently synced — throttled.");
-    }
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const today = await prisma.syncLog.count({ where: { fetchedAt: { gte: startOfDay } } });
-    if (today >= DAILY_API_CAP) {
-      return skipped("Daily API budget reached — try later.");
-    }
+// Recompute cached team scoring projections from whatever is currently in the DB.
+async function recomputeCachedStates(): Promise<void> {
+  const teams = await prisma.team.findMany();
+  const externalById = new Map(teams.map((t) => [t.id, t.externalId]));
+  const matches = await prisma.match.findMany();
+  const scoringMatches: ScoringMatch[] = matches.map((m) => ({
+    roundOrd: m.roundOrd,
+    groupName: m.groupName,
+    status: m.status,
+    homeExternalId: m.homeTeamId ? externalById.get(m.homeTeamId) ?? null : null,
+    awayExternalId: m.awayTeamId ? externalById.get(m.awayTeamId) ?? null : null,
+    homeGoals: m.homeGoals,
+    awayGoals: m.awayGoals,
+    winnerExternalId: m.winnerTeamId ? externalById.get(m.winnerTeamId) ?? null : null,
+  }));
+  const scoringTeams: ScoringTeam[] = teams.map((t) => ({
+    externalId: t.externalId,
+    groupName: t.groupName,
+  }));
+  const states = deriveTeamStates(scoringTeams, scoringMatches);
+  for (const t of teams) {
+    const s = states.get(t.externalId);
+    if (!s) continue;
+    await prisma.team.update({
+      where: { id: t.id },
+      data: {
+        furthestRound: s.furthestRound,
+        eliminated: s.eliminated,
+        isChampion: s.isChampion,
+        goalsFor: s.goalsFor,
+      },
+    });
+  }
+}
+
+// Overlay live scores from API-Football onto EXISTING matches only. Matches are found
+// by canonical team pair, so nothing is ever created — unknown/unresolved games are
+// safely skipped. Returns the number of matches updated, or null if unavailable.
+async function applyLiveOverlay(): Promise<number | null> {
+  const provider = getLiveProvider();
+  if (!provider) return null;
+
+  let snapshot: ProviderSnapshot;
+  try {
+    snapshot = await provider.getSnapshot();
+  } catch {
+    return null; // network / key / rate-limit issue — fail safe, free source still applies
   }
 
-  const { snapshot, usedFallback, error } = await getSnapshotSafe();
-  const result = await applySnapshot(snapshot);
-  result.usedFallback = usedFallback;
+  const teams = await prisma.team.findMany();
+  const idByName = new Map(teams.map((t) => [t.name, t.id]));
+  const dbMatches = await prisma.match.findMany();
+  const matchByPair = new Map<string, string>();
+  for (const m of dbMatches) {
+    if (m.homeTeamId && m.awayTeamId) matchByPair.set(`${m.homeTeamId}|${m.awayTeamId}`, m.id);
+  }
 
-  await prisma.syncLog.create({
-    data: {
-      source: usedFallback ? `${snapshot.source} (fallback)` : snapshot.source,
-      ok: true,
-      note: error ?? null,
-    },
-  });
+  let updated = 0;
+  for (const f of snapshot.fixtures) {
+    if (!f.homeExternalId || !f.awayExternalId) continue;
+    const homeId = idByName.get(f.homeExternalId);
+    const awayId = idByName.get(f.awayExternalId);
+    if (!homeId || !awayId) continue;
+    const matchId = matchByPair.get(`${homeId}|${awayId}`);
+    if (!matchId) continue;
+    await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: f.status,
+        homeGoals: f.homeGoals,
+        awayGoals: f.awayGoals,
+        winnerTeamId: f.winnerExternalId ? idByName.get(f.winnerExternalId) ?? null : null,
+      },
+    });
+    updated++;
+  }
+
+  if (updated > 0) await recomputeCachedStates();
+  return updated;
+}
+
+// Entry point for the cron route, the live poller, and the admin button.
+// - structural refresh (free openfootball feed) keeps fixtures/teams correct
+// - live overlay (API-Football) adds in-play scores, only when a match is live
+export async function runSync(
+  opts: { force?: boolean; overlayOnly?: boolean } = {},
+): Promise<SyncResult> {
+  let result: SyncResult = skipped("Nothing to sync.");
+
+  // 1) Structural refresh from the free source (skipped for the lightweight poller).
+  if (!opts.overlayOnly) {
+    const { snapshot, usedFallback, error } = await getSnapshotSafe();
+    result = await applySnapshot(snapshot);
+    result.usedFallback = usedFallback;
+    await prisma.syncLog.create({
+      data: {
+        source: usedFallback ? `${snapshot.source} (fallback)` : snapshot.source,
+        ok: true,
+        note: error ?? null,
+      },
+    });
+  }
+
+  // 2) Live-score overlay from API-Football (additive, budget-guarded, fail-safe).
+  if (process.env.FOOTBALL_API_KEY) {
+    const inWindow = opts.force || (await shouldHitLiveApi());
+    if (inWindow && (opts.force || (await withinApiBudget()))) {
+      const updated = await applyLiveOverlay();
+      if (updated != null) {
+        await prisma.syncLog.create({
+          data: { source: "api-football", ok: true, note: `overlay:${updated}` },
+        });
+        result = {
+          source: "api-football",
+          usedFallback: false,
+          teams: 0,
+          matches: updated,
+          champion: null,
+        };
+      }
+    }
+  }
 
   return result;
 }

@@ -47,19 +47,17 @@ npm test                    # scoring engine unit tests (vitest)
 
 ## Data sources (fixtures & scores)
 
-The app reads through one provider, chosen automatically (`src/lib/providers`):
+The app separates **structure** from **live scores** (`src/lib/providers`):
 
-1. **API-Football** — real-time in-play scores. Used when `FOOTBALL_API_KEY` is set.
-2. **openfootball** — the real 2026 schedule + results, free and key-less (refreshed from its
-   public repo, not minute-by-minute live).
-3. **Bundled snapshot** (`src/data/worldcup-2026.json`) — the same real schedule, offline fallback.
+- **Structure** (teams, groups, fixtures, who plays each match) always comes from the free,
+  name-keyed **openfootball** feed, falling back to the bundled snapshot
+  (`src/data/worldcup-2026.json`) offline. This is the single source of truth for the schedule.
+- **Live scores** (optional) come from **API-Football** when `FOOTBALL_API_KEY` is set. They are
+  **overlaid** onto existing matches (matched by canonical team name) — never used to create or
+  re-key teams/matches. If a game can't be matched, it's safely skipped.
 
-So fixtures and team names are **always real**; an API key only adds live in-play scoring.
-
-> **Tip:** pick your data source *before* running the draw. API-Football identifies teams by its
-> own numeric IDs while the openfootball/bundled sources use country names, so switching to an API
-> key after drawing would not line up assignments. For live scores, set `FOOTBALL_API_KEY` before
-> the first seed + draw.
+So fixtures and team names are **always real and stable**; adding an API key only layers in-play
+scores on top, and can't duplicate data or disturb the draw — add it any time, before or after.
 
 Add an API-Football key to `.env`:
 
