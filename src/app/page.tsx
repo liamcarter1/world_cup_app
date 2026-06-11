@@ -83,7 +83,7 @@ export default async function Home() {
           </div>
         ) : (
           <Link href="/bracket" className="btn-ghost">
-            View the bracket →
+            View the knockout stage →
           </Link>
         )}
       </section>

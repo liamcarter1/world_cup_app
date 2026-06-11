@@ -19,7 +19,7 @@ export default async function BracketPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="display text-3xl">Knockout bracket</h1>
+        <h1 className="display text-3xl">Knockout Stage</h1>
         <p className="text-sm text-white/50">
           Slots are tinted by the family member who owns each team — watch the colours advance.
         </p>

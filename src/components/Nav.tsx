@@ -7,7 +7,7 @@ import { APP_NAME } from "@/lib/theme";
 const LINKS = [
   { href: "/", label: "Home" },
   { href: "/members", label: "Family" },
-  { href: "/bracket", label: "Bracket" },
+  { href: "/bracket", label: "Knockout Stage" },
   { href: "/fixtures", label: "Fixtures" },
   { href: "/admin", label: "Admin" },
 ];
