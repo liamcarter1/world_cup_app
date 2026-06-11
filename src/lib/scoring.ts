@@ -6,6 +6,8 @@ export const FINISHED = new Set(["FT", "AET", "PEN"]);
 // Group survival(R32)=3, R16=+3, QF=+4, SF=+6, Final=+8, Champion=+12 on top.
 export const ROUND_POINTS = [0, 3, 6, 10, 16, 24];
 export const CHAMPION_BONUS = 12;
+// Each goal a team scores adds to its owner's total — keeps the prize race alive.
+export const GOAL_POINTS = 1;
 
 export interface ScoringTeam {
   externalId: string;
@@ -114,9 +116,13 @@ export function deriveTeamStates(
   return states;
 }
 
-export function teamPoints(s: Pick<TeamState, "furthestRound" | "isChampion">): number {
+export function teamPoints(s: {
+  furthestRound: number;
+  isChampion: boolean;
+  goalsFor?: number;
+}): number {
   const base = ROUND_POINTS[Math.min(s.furthestRound, ROUND_POINTS.length - 1)];
-  return base + (s.isChampion ? CHAMPION_BONUS : 0);
+  return base + (s.isChampion ? CHAMPION_BONUS : 0) + (s.goalsFor ?? 0) * GOAL_POINTS;
 }
 
 export interface LeaderboardTeam extends TeamState {

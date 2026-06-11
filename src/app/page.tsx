@@ -3,6 +3,8 @@ import { DrawButton } from "@/components/DrawButton";
 import { Leaderboard } from "@/components/Leaderboard";
 import { MemberCard } from "@/components/MemberCard";
 import { PrizePot } from "@/components/PrizePot";
+import { GoalsTable } from "@/components/GoalsTable";
+import { HowItWorks } from "@/components/HowItWorks";
 import { FixtureRow } from "@/components/FixtureRow";
 import { ScorePoller } from "@/components/ScorePoller";
 import {
@@ -86,6 +88,8 @@ export default async function Home() {
         )}
       </section>
 
+      <HowItWorks />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Leaderboard entries={leaderboard} />
@@ -101,6 +105,7 @@ export default async function Home() {
 
         <div className="space-y-6">
           <PrizePot prizes={prizes} />
+          <GoalsTable entries={leaderboard} />
           <section className="card p-4">
             <h2 className="display mb-3 text-lg">
               {live.length ? "Live & next" : "Upcoming"}

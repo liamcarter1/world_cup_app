@@ -41,12 +41,12 @@ describe("deriveTeamStates", () => {
     expect(a.isChampion).toBe(true);
     expect(a.furthestRound).toBe(5);
     expect(a.eliminated).toBe(false);
-    expect(teamPoints(a)).toBe(36);
+    expect(teamPoints(a)).toBe(38); // 24 (final) + 12 (champion) + 2 goals
 
     expect(b.isChampion).toBe(false);
     expect(b.furthestRound).toBe(5);
     expect(b.eliminated).toBe(true);
-    expect(teamPoints(b)).toBe(24);
+    expect(teamPoints(b)).toBe(25); // 24 (runner-up) + 1 goal
 
     expect(a.goalsFor).toBe(2);
     expect(b.goalsFor).toBe(1);
@@ -83,7 +83,7 @@ describe("deriveTeamStates", () => {
 
     expect(p.furthestRound).toBe(1);
     expect(p.eliminated).toBe(false);
-    expect(teamPoints(p)).toBe(3);
+    expect(teamPoints(p)).toBe(4); // 3 (reached R32) + 1 goal
 
     expect(q.furthestRound).toBe(0);
     expect(q.eliminated).toBe(true);
@@ -122,8 +122,8 @@ describe("buildLeaderboard", () => {
     expect(lb[0].memberName).toBe("Liam");
     expect(lb[0].rank).toBe(1);
     expect(lb[0].hasChampion).toBe(true);
-    // Liam: champion A (36) + B (0). Heidi: runner-up C (24) + D (0).
-    expect(lb[0].points).toBe(36);
+    // Liam: champion A (36 + 3 goals = 39) + B (0). Heidi: runner-up C (24 + 0) + D (0).
+    expect(lb[0].points).toBe(39);
     expect(lb[1].points).toBe(24);
   });
 
