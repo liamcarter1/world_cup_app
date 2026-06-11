@@ -103,27 +103,43 @@ export async function applySnapshot(snapshot: ProviderSnapshot): Promise<SyncRes
   };
 }
 
-// Stay under the API-Football free tier (100/day): only hit the live API when a match is
-// live or kicks off within the next ~20 minutes. Seed/no-key runs are always free.
-async function shouldHitLiveApi(): Promise<boolean> {
-  if (!process.env.FOOTBALL_API_KEY) return false; // seed source — no budget concern
+// A match is live now, or kicked off in the last ~3h, or kicks off within ~20 min.
+async function inLiveWindow(): Promise<boolean> {
   const now = Date.now();
   const soon = new Date(now + 20 * 60 * 1000);
-  const liveOrSoon = await prisma.match.findFirst({
+  const m = await prisma.match.findFirst({
     where: {
       OR: [
         { status: { in: ["1H", "HT", "2H", "ET", "P", "BT", "SUSP", "INT"] } },
         { status: "NS", kickoff: { lte: soon, gte: new Date(now - 3 * 60 * 60 * 1000) } },
       ],
     },
+    select: { id: true },
   });
-  return !!liveOrSoon;
+  return !!m;
+}
+
+async function shouldHitLiveApi(): Promise<boolean> {
+  if (!process.env.FOOTBALL_API_KEY) return false; // no key — overlay not used
+  return inLiveWindow();
 }
 
 // Min gap between real API hits (protects the free 100/day budget even if many
 // family members' browsers poll at once) and a safety cap on daily API calls.
 const THROTTLE_MS = 5 * 60 * 1000;
 const DAILY_API_CAP = 90;
+// Min gap between free-source (openfootball) refreshes triggered by the poller, so
+// many phones polling during a match don't hammer the DB. The daily cron is separate.
+const STRUCT_THROTTLE_MS = 3 * 60 * 1000;
+
+// Has the free structural source been refreshed within the throttle window?
+async function structuralRecentlySynced(): Promise<boolean> {
+  const last = await prisma.syncLog.findFirst({
+    where: { NOT: { source: { startsWith: "api-football" } } },
+    orderBy: { fetchedAt: "desc" },
+  });
+  return !!last && Date.now() - last.fetchedAt.getTime() < STRUCT_THROTTLE_MS;
+}
 
 // Throttle + daily cap, counted only against real API-Football calls.
 async function withinApiBudget(): Promise<boolean> {
@@ -222,15 +238,25 @@ async function applyLiveOverlay(): Promise<number | null> {
 }
 
 // Entry point for the cron route, the live poller, and the admin button.
-// - structural refresh (free openfootball feed) keeps fixtures/teams correct
-// - live overlay (API-Football) adds in-play scores, only when a match is live
+// - structural refresh (free openfootball feed) keeps fixtures + results current
+// - live overlay (API-Football) adds in-play scores, only when a key + match are live
+//
+// Modes:
+//   force  → full refresh now (admin button)
+//   poll   → live poller: refresh the free source only during a match window, throttled
+//   (none) → daily cron / setup: full structural refresh
 export async function runSync(
-  opts: { force?: boolean; overlayOnly?: boolean } = {},
+  opts: { force?: boolean; poll?: boolean } = {},
 ): Promise<SyncResult> {
   let result: SyncResult = skipped("Nothing to sync.");
 
-  // 1) Structural refresh from the free source (skipped for the lightweight poller).
-  if (!opts.overlayOnly) {
+  // 1) Structural refresh from the free source (the poller only does this during a
+  // live window, and not more often than the throttle, to keep DB writes sane).
+  let doStructural = true;
+  if (opts.poll && !opts.force) {
+    doStructural = (await inLiveWindow()) && !(await structuralRecentlySynced());
+  }
+  if (doStructural) {
     const { snapshot, usedFallback, error } = await getSnapshotSafe();
     result = await applySnapshot(snapshot);
     result.usedFallback = usedFallback;

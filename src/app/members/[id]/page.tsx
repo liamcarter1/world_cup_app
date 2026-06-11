@@ -5,7 +5,7 @@ import { FixtureRow } from "@/components/FixtureRow";
 import { ScorePoller } from "@/components/ScorePoller";
 import { getLeaderboard, getFixtures, getOwnerMap, getLiveWindow } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
-import { liveStatus, finishedStatus, PRIZE_POT } from "@/lib/theme";
+import { displayStatus, isInPlay, finishedStatus, PRIZE_POT } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +30,10 @@ export default async function MemberPage({
       (m.homeTeam && teamIds.has(m.homeTeam.externalId)) ||
       (m.awayTeam && teamIds.has(m.awayTeam.externalId)),
   );
-  const live = myFixtures.filter((m) => liveStatus(m.status));
-  const upcoming = myFixtures.filter((m) => m.status === "NS").slice(0, 6);
+  const live = myFixtures.filter((m) => isInPlay(displayStatus(m.status, m.kickoff)));
+  const upcoming = myFixtures
+    .filter((m) => displayStatus(m.status, m.kickoff) === "upcoming")
+    .slice(0, 6);
   const results = myFixtures.filter((m) => finishedStatus(m.status)).slice(-6).reverse();
 
   return (

@@ -1,6 +1,6 @@
 import { StatusPill } from "./LiveBadge";
 import { Countdown } from "./Countdown";
-import { liveStatus, finishedStatus } from "@/lib/theme";
+import { displayStatus } from "@/lib/theme";
 
 export interface FixtureRowData {
   id: string;
@@ -48,21 +48,26 @@ function Side({
 }
 
 export function FixtureRow({ m }: { m: FixtureRowData }) {
-  const showScore = liveStatus(m.status) || finishedStatus(m.status);
+  const ds = displayStatus(m.status, m.kickoff);
+  const showScore = ds === "ft" || ds === "live";
   return (
     <div className="card flex items-center gap-3 px-3 py-2.5">
       <Side name={m.homeName} flag={m.homeFlag} owner={m.homeOwner} align="left" />
-      <div className="flex w-24 shrink-0 flex-col items-center">
+      <div className="flex w-24 shrink-0 flex-col items-center gap-0.5">
         {showScore ? (
           <span className="display text-xl tabular-nums">
             {m.homeGoals ?? 0}–{m.awayGoals ?? 0}
           </span>
-        ) : (
+        ) : ds === "upcoming" ? (
           <span className="text-xs text-white/50">
             <Countdown to={m.kickoff} />
           </span>
+        ) : (
+          <span className="text-[10px] uppercase tracking-wide text-white/40">
+            {ds === "inplay" ? "underway" : "awaiting"}
+          </span>
         )}
-        <StatusPill status={m.status} />
+        <StatusPill ds={ds} />
       </div>
       <Side name={m.awayName} flag={m.awayFlag} owner={m.awayOwner} align="right" />
     </div>

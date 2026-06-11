@@ -2,7 +2,7 @@ import { FixtureRow } from "@/components/FixtureRow";
 import { ScorePoller } from "@/components/ScorePoller";
 import { getFixtures, getOwnerMap, getLiveWindow } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
-import { liveStatus, ROUND_LABELS } from "@/lib/theme";
+import { displayStatus, isInPlay, ROUND_LABELS } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ export default async function FixturesPage() {
     getFixtures(),
     getLiveWindow(),
   ]);
-  const live = fixtures.filter((m) => liveStatus(m.status));
+  const live = fixtures.filter((m) => isInPlay(displayStatus(m.status, m.kickoff)));
 
   // Group by round for readability.
   const byRound = new Map<number, typeof fixtures>();

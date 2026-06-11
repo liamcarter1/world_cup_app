@@ -14,7 +14,7 @@ import {
   getLiveWindow,
 } from "@/lib/queries";
 import { toFixtureRow } from "@/lib/view";
-import { liveStatus, finishedStatus, APP_NAME } from "@/lib/theme";
+import { displayStatus, isInPlay, finishedStatus, APP_NAME } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -52,8 +52,10 @@ export default async function Home() {
     getLiveWindow(),
   ]);
 
-  const live = allFixtures.filter((m) => liveStatus(m.status));
-  const upcoming = allFixtures.filter((m) => m.status === "NS").slice(0, 6);
+  const live = allFixtures.filter((m) => isInPlay(displayStatus(m.status, m.kickoff)));
+  const upcoming = allFixtures
+    .filter((m) => displayStatus(m.status, m.kickoff) === "upcoming")
+    .slice(0, 6);
   const recent = allFixtures
     .filter((m) => finishedStatus(m.status))
     .slice(-4)

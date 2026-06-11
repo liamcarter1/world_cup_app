@@ -53,3 +53,27 @@ export function liveStatus(status: string): boolean {
 export function finishedStatus(status: string): boolean {
   return ["FT", "AET", "PEN"].includes(status);
 }
+
+// Display state for a fixture, derived from its real status AND the clock so the app
+// shows "In Play" during a match even before a (free-source) result is posted.
+export type DisplayStatus = "upcoming" | "inplay" | "await" | "live" | "ft";
+
+// A match is treated as in-play for ~2.5h after kick-off (covers extra time + pens).
+const INPLAY_MS = 150 * 60 * 1000;
+
+export function displayStatus(
+  status: string,
+  kickoff: Date | string,
+  now: number = Date.now(),
+): DisplayStatus {
+  if (finishedStatus(status)) return "ft";
+  if (liveStatus(status)) return "live";
+  const k = new Date(kickoff).getTime();
+  if (now >= k && now < k + INPLAY_MS) return "inplay";
+  if (now >= k + INPLAY_MS) return "await";
+  return "upcoming";
+}
+
+export function isInPlay(ds: DisplayStatus): boolean {
+  return ds === "live" || ds === "inplay";
+}
