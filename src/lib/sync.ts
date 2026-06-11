@@ -34,72 +34,45 @@ export async function applySnapshot(snapshot: ProviderSnapshot): Promise<SyncRes
   const dbTeams = await prisma.team.findMany();
   const idByExternal = new Map(dbTeams.map((t) => [t.externalId, t.id]));
 
-  // 2) Upsert matches, resolving team relations by externalId.
+  // 2) Upsert matches. On UPDATE only the STRUCTURAL fields (round/teams/kickoff/venue)
+  //    are written — the live score fields (status/goals/winner) are owned by the ESPN
+  //    overlay and must NOT be reset to "not started" by a schedule refresh.
   for (const f of snapshot.fixtures) {
     const homeTeamId = f.homeExternalId ? idByExternal.get(f.homeExternalId) ?? null : null;
     const awayTeamId = f.awayExternalId ? idByExternal.get(f.awayExternalId) ?? null : null;
-    const winnerTeamId = f.winnerExternalId
-      ? idByExternal.get(f.winnerExternalId) ?? null
-      : null;
-    const data = {
+    const schedule = {
       round: f.round,
       roundOrd: f.roundOrd,
       groupName: f.groupName,
       kickoff: new Date(f.kickoff),
       venue: f.venue,
-      status: f.status,
       homeTeamId,
       awayTeamId,
-      homeGoals: f.homeGoals,
-      awayGoals: f.awayGoals,
-      winnerTeamId,
     };
     await prisma.match.upsert({
       where: { externalId: f.externalId },
-      create: { externalId: f.externalId, ...data },
-      update: data,
-    });
-  }
-
-  // 3) Recompute cached team states from the snapshot fixtures.
-  const scoringTeams: ScoringTeam[] = snapshot.teams.map((t) => ({
-    externalId: t.externalId,
-    groupName: t.groupName,
-  }));
-  const scoringMatches: ScoringMatch[] = snapshot.fixtures.map((f) => ({
-    roundOrd: f.roundOrd,
-    groupName: f.groupName,
-    status: f.status,
-    homeExternalId: f.homeExternalId,
-    awayExternalId: f.awayExternalId,
-    homeGoals: f.homeGoals,
-    awayGoals: f.awayGoals,
-    winnerExternalId: f.winnerExternalId,
-  }));
-  const states = deriveTeamStates(scoringTeams, scoringMatches);
-
-  let champion: string | null = null;
-  for (const t of snapshot.teams) {
-    const s = states.get(t.externalId);
-    if (!s) continue;
-    if (s.isChampion) champion = t.name;
-    await prisma.team.update({
-      where: { externalId: t.externalId },
-      data: {
-        furthestRound: s.furthestRound,
-        eliminated: s.eliminated,
-        isChampion: s.isChampion,
-        goalsFor: s.goalsFor,
+      create: {
+        externalId: f.externalId,
+        ...schedule,
+        status: f.status,
+        homeGoals: f.homeGoals,
+        awayGoals: f.awayGoals,
+        winnerTeamId: f.winnerExternalId ? idByExternal.get(f.winnerExternalId) ?? null : null,
       },
+      update: schedule,
     });
   }
+
+  // 3) Recompute cached scoring from the DB (which holds the live results).
+  await recomputeCachedStates();
+  const champ = await prisma.team.findFirst({ where: { isChampion: true } });
 
   return {
     source: snapshot.source,
     usedFallback: false,
     teams: snapshot.teams.length,
     matches: snapshot.fixtures.length,
-    champion,
+    champion: champ?.name ?? null,
   };
 }
 
@@ -119,41 +92,27 @@ async function inLiveWindow(): Promise<boolean> {
   return !!m;
 }
 
-async function shouldHitLiveApi(): Promise<boolean> {
-  if (!process.env.FOOTBALL_API_KEY) return false; // no key — overlay not used
-  return inLiveWindow();
-}
-
-// Min gap between real API hits (protects the free 100/day budget even if many
-// family members' browsers poll at once) and a safety cap on daily API calls.
-const THROTTLE_MS = 5 * 60 * 1000;
-const DAILY_API_CAP = 90;
-// Min gap between free-source (openfootball) refreshes triggered by the poller, so
-// many phones polling during a match don't hammer the DB. The daily cron is separate.
+// Min gap between openfootball schedule refreshes (poller) and ESPN overlay fetches, so
+// many phones polling at once don't hammer the sources. ESPN is free + unlimited, so the
+// overlay can refresh close to live.
 const STRUCT_THROTTLE_MS = 3 * 60 * 1000;
+const OVERLAY_THROTTLE_MS = 60 * 1000;
 
-// Has the free structural source been refreshed within the throttle window?
+// Schedule (openfootball/seed) syncs log a non-"espn" source; the overlay logs "espn".
 async function structuralRecentlySynced(): Promise<boolean> {
   const last = await prisma.syncLog.findFirst({
-    where: { NOT: { source: { startsWith: "api-football" } } },
+    where: { NOT: { source: "espn" } },
     orderBy: { fetchedAt: "desc" },
   });
   return !!last && Date.now() - last.fetchedAt.getTime() < STRUCT_THROTTLE_MS;
 }
 
-// Throttle + daily cap, counted only against real API-Football calls.
-async function withinApiBudget(): Promise<boolean> {
+async function overlayRecentlySynced(): Promise<boolean> {
   const last = await prisma.syncLog.findFirst({
-    where: { source: { startsWith: "api-football" } },
+    where: { source: "espn" },
     orderBy: { fetchedAt: "desc" },
   });
-  if (last && Date.now() - last.fetchedAt.getTime() < THROTTLE_MS) return false;
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
-  const today = await prisma.syncLog.count({
-    where: { source: { startsWith: "api-football" }, fetchedAt: { gte: startOfDay } },
-  });
-  return today < DAILY_API_CAP;
+  return !!last && Date.now() - last.fetchedAt.getTime() < OVERLAY_THROTTLE_MS;
 }
 
 // Recompute cached team scoring projections from whatever is currently in the DB.
@@ -191,26 +150,24 @@ async function recomputeCachedStates(): Promise<void> {
   }
 }
 
-// Overlay live scores from API-Football onto EXISTING matches only. Matches are found
-// by canonical team pair, so nothing is ever created — unknown/unresolved games are
-// safely skipped. Returns the number of matches updated, or null if unavailable.
+// Overlay live scores + results from ESPN onto EXISTING matches only, matched by canonical
+// team pair, so nothing is ever created — unknown/unresolved games are safely skipped.
+// Only writes matches whose score/status actually changed. Returns the number of matches
+// updated, or null if the source was unavailable.
 async function applyLiveOverlay(): Promise<number | null> {
-  const provider = getLiveProvider();
-  if (!provider) return null;
-
   let snapshot: ProviderSnapshot;
   try {
-    snapshot = await provider.getSnapshot();
+    snapshot = await getLiveProvider().getSnapshot();
   } catch {
-    return null; // network / key / rate-limit issue — fail safe, free source still applies
+    return null; // network issue — fail safe, schedule still applies
   }
 
   const teams = await prisma.team.findMany();
   const idByName = new Map(teams.map((t) => [t.name, t.id]));
   const dbMatches = await prisma.match.findMany();
-  const matchByPair = new Map<string, string>();
+  const byPair = new Map<string, (typeof dbMatches)[number]>();
   for (const m of dbMatches) {
-    if (m.homeTeamId && m.awayTeamId) matchByPair.set(`${m.homeTeamId}|${m.awayTeamId}`, m.id);
+    if (m.homeTeamId && m.awayTeamId) byPair.set(`${m.homeTeamId}|${m.awayTeamId}`, m);
   }
 
   let updated = 0;
@@ -219,16 +176,20 @@ async function applyLiveOverlay(): Promise<number | null> {
     const homeId = idByName.get(f.homeExternalId);
     const awayId = idByName.get(f.awayExternalId);
     if (!homeId || !awayId) continue;
-    const matchId = matchByPair.get(`${homeId}|${awayId}`);
-    if (!matchId) continue;
+    const match = byPair.get(`${homeId}|${awayId}`);
+    if (!match) continue;
+    const winnerTeamId = f.winnerExternalId ? idByName.get(f.winnerExternalId) ?? null : null;
+    if (
+      match.status === f.status &&
+      match.homeGoals === f.homeGoals &&
+      match.awayGoals === f.awayGoals &&
+      match.winnerTeamId === winnerTeamId
+    ) {
+      continue; // no change
+    }
     await prisma.match.update({
-      where: { id: matchId },
-      data: {
-        status: f.status,
-        homeGoals: f.homeGoals,
-        awayGoals: f.awayGoals,
-        winnerTeamId: f.winnerExternalId ? idByName.get(f.winnerExternalId) ?? null : null,
-      },
+      where: { id: match.id },
+      data: { status: f.status, homeGoals: f.homeGoals, awayGoals: f.awayGoals, winnerTeamId },
     });
     updated++;
   }
@@ -269,17 +230,18 @@ export async function runSync(
     });
   }
 
-  // 2) Live-score overlay from API-Football (additive, budget-guarded, fail-safe).
-  if (process.env.FOOTBALL_API_KEY) {
-    const inWindow = opts.force || (await shouldHitLiveApi());
-    if (inWindow && (opts.force || (await withinApiBudget()))) {
-      const updated = await applyLiveOverlay();
-      if (updated != null) {
-        await prisma.syncLog.create({
-          data: { source: "api-football", ok: true, note: `overlay:${updated}` },
-        });
+  // 2) Live-score + results overlay from ESPN (free, no key) — additive, throttled,
+  // fail-safe. Runs during a match window (or forced from the admin button).
+  const overlayWindow = opts.force || (await inLiveWindow());
+  if (overlayWindow && (opts.force || !(await overlayRecentlySynced()))) {
+    const updated = await applyLiveOverlay();
+    if (updated != null) {
+      await prisma.syncLog.create({
+        data: { source: "espn", ok: true, note: `overlay:${updated}` },
+      });
+      if (updated > 0) {
         result = {
-          source: "api-football",
+          source: "espn",
           usedFallback: false,
           teams: 0,
           matches: updated,

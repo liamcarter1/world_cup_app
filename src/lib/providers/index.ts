@@ -1,7 +1,7 @@
 import type { FootballDataProvider, ProviderSnapshot } from "@/lib/types";
 import { SeedProvider } from "./seed";
-import { ApiFootballProvider } from "./apifootball";
 import { OpenFootballProvider } from "./openfootball";
+import { EspnProvider } from "./espn";
 
 // STRUCTURAL source (teams, groups, fixtures, who's playing each match): the free,
 // name-keyed openfootball feed, falling back to the bundled real snapshot offline.
@@ -31,9 +31,8 @@ export async function getSnapshotSafe(): Promise<{
   }
 }
 
-// LIVE-SCORE source (in-play scores only, overlaid onto existing matches): API-Football,
-// used only when a key is configured. Returns null when no key is set.
-export function getLiveProvider(): ApiFootballProvider | null {
-  const key = process.env.FOOTBALL_API_KEY;
-  return key && key.trim().length > 0 ? new ApiFootballProvider(key.trim()) : null;
+// LIVE-SCORE source (in-play scores + results, overlaid onto existing matches): ESPN's
+// free, no-key World Cup scoreboard. Works for everyone with no API key or sign-up.
+export function getLiveProvider(): FootballDataProvider {
+  return new EspnProvider();
 }
