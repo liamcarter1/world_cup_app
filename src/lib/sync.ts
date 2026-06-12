@@ -64,6 +64,14 @@ export async function applySnapshot(snapshot: ProviderSnapshot): Promise<SyncRes
     });
   }
 
+  // Prune any stale matches no longer in the source (e.g. if the schedule file's IDs
+  // shift), so duplicates can't accumulate. Guarded so a bad/partial snapshot (the WC has
+  // 104 matches) can never wipe the table.
+  if (snapshot.fixtures.length >= 100) {
+    const ids = snapshot.fixtures.map((f) => f.externalId);
+    await prisma.match.deleteMany({ where: { externalId: { notIn: ids } } });
+  }
+
   // 3) Recompute cached scoring from the DB (which holds the live results).
   await recomputeCachedStates();
   const champ = await prisma.team.findFirst({ where: { isChampion: true } });
