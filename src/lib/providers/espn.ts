@@ -4,8 +4,9 @@ import type { FootballDataProvider, NormalizedFixture, ProviderSnapshot } from "
 // in-play scores and final results. Used purely as a score overlay onto existing matches.
 const BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 
-// Map ESPN's team names onto our canonical (openfootball) names. Unmapped names pass
-// through unchanged (and simply won't match — a safe no-op, never a duplicate).
+// Map ESPN's team names onto our canonical (openfootball) names where the WORDS differ.
+// Punctuation/accent/case/hyphen differences are handled by teamKey() normalization, so
+// e.g. "Bosnia-Herzegovina" already matches "Bosnia & Herzegovina" without an entry here.
 const ESPN_ALIASES: Record<string, string> = {
   Czechia: "Czech Republic",
   "United States": "USA",
@@ -15,7 +16,6 @@ const ESPN_ALIASES: Record<string, string> = {
   "Cote d'Ivoire": "Ivory Coast",
   "Congo DR": "DR Congo",
   "Cabo Verde": "Cape Verde",
-  "Bosnia and Herzegovina": "Bosnia & Herzegovina",
   "Korea Republic": "South Korea",
   "IR Iran": "Iran",
 };
@@ -23,6 +23,18 @@ const ESPN_ALIASES: Record<string, string> = {
 function canon(name: string | undefined): string | null {
   if (!name) return null;
   return ESPN_ALIASES[name] ?? name;
+}
+
+// Normalized key for fuzzy team-name matching: lowercase, strip accents, and reduce any
+// run of punctuation/whitespace to a single space. So "Bosnia & Herzegovina",
+// "Bosnia-Herzegovina" and "bosnia  herzegovina" all become "bosnia herzegovina".
+export function teamKey(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function ymd(d: Date): string {

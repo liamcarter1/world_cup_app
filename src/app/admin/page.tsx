@@ -6,7 +6,6 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const { draw } = await getDrawStatus();
-  const hasApiKey = !!process.env.FOOTBALL_API_KEY;
   const requiresPassword = !!process.env.ADMIN_PASSWORD;
   const lastSync = await prisma.syncLog.findFirst({ orderBy: { fetchedAt: "desc" } });
   const [teamCount, matchCount] = await Promise.all([
@@ -42,7 +41,7 @@ export default async function AdminPage() {
             {teamCount} / {matchCount}
           </dd>
           <dt className="text-white/50">Live data source</dt>
-          <dd>{hasApiKey ? "API-Football (live)" : "Bundled seed (no API key)"}</dd>
+          <dd>ESPN (free live scores) · schedule from openfootball</dd>
           <dt className="text-white/50">Last sync</dt>
           <dd>
             {lastSync
@@ -55,10 +54,7 @@ export default async function AdminPage() {
       <section className="card p-5">
         <h2 className="display mb-1 text-lg">Update scores</h2>
         <p className="mb-3 text-xs text-white/50">
-          Pulls the latest fixtures/results and recomputes the leaderboard.
-          {hasApiKey
-            ? " Live from API-Football."
-            : " Add FOOTBALL_API_KEY for live scores; using bundled data for now."}
+          Pulls the latest scores/results from ESPN and recomputes the leaderboard.
         </p>
         <AdminPanel requiresPassword={requiresPassword} />
       </section>

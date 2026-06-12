@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getSnapshotSafe, getLiveProvider } from "@/lib/providers";
+import { teamKey } from "@/lib/providers/espn";
 import { deriveTeamStates, type ScoringMatch, type ScoringTeam } from "@/lib/scoring";
 import { liveStatus } from "@/lib/theme";
 import type { ProviderSnapshot } from "@/lib/types";
@@ -163,7 +164,9 @@ async function applyLiveOverlay(): Promise<number | null> {
   }
 
   const teams = await prisma.team.findMany();
-  const idByName = new Map(teams.map((t) => [t.name, t.id]));
+  // Match by NORMALIZED team name so spelling/punctuation/accent differences between ESPN
+  // and our schedule source don't silently drop a result.
+  const idByKey = new Map(teams.map((t) => [teamKey(t.name), t.id]));
   const dbMatches = await prisma.match.findMany();
   const byPair = new Map<string, (typeof dbMatches)[number]>();
   for (const m of dbMatches) {
@@ -173,12 +176,12 @@ async function applyLiveOverlay(): Promise<number | null> {
   let updated = 0;
   for (const f of snapshot.fixtures) {
     if (!f.homeExternalId || !f.awayExternalId) continue;
-    const homeId = idByName.get(f.homeExternalId);
-    const awayId = idByName.get(f.awayExternalId);
+    const homeId = idByKey.get(teamKey(f.homeExternalId));
+    const awayId = idByKey.get(teamKey(f.awayExternalId));
     if (!homeId || !awayId) continue;
     const match = byPair.get(`${homeId}|${awayId}`);
     if (!match) continue;
-    const winnerTeamId = f.winnerExternalId ? idByName.get(f.winnerExternalId) ?? null : null;
+    const winnerTeamId = f.winnerExternalId ? idByKey.get(teamKey(f.winnerExternalId)) ?? null : null;
     if (
       match.status === f.status &&
       match.homeGoals === f.homeGoals &&
@@ -231,9 +234,8 @@ export async function runSync(
   }
 
   // 2) Live-score + results overlay from ESPN (free, no key) — additive, throttled,
-  // fail-safe. Runs during a match window (or forced from the admin button).
-  const overlayWindow = opts.force || (await inLiveWindow());
-  if (overlayWindow && (opts.force || !(await overlayRecentlySynced()))) {
+  // fail-safe. Always runs (throttled to ~60s) so any missed result self-heals next time.
+  if (opts.force || !(await overlayRecentlySynced())) {
     const updated = await applyLiveOverlay();
     if (updated != null) {
       await prisma.syncLog.create({

@@ -19,6 +19,7 @@ export function ScorePoller({ active, intervalMs = 60000 }: { active: boolean; i
       }
       if (!cancelled) router.refresh();
     };
+    tick(); // fire immediately on open, then keep polling
     const id = setInterval(tick, intervalMs);
     return () => {
       cancelled = true;
