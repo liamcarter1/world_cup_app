@@ -77,8 +77,9 @@ export function deriveTeamStates(
       }
     }
 
+    // Goals count as they happen (live + finished), matching the on-screen score. NS
+    // matches have null goals (contribute 0).
     const goalsFor = teamMatches.reduce((sum, m) => {
-      if (!isFinished(m)) return sum;
       if (m.homeExternalId === id) return sum + (m.homeGoals ?? 0);
       if (m.awayExternalId === id) return sum + (m.awayGoals ?? 0);
       return sum;
