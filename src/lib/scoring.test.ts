@@ -168,3 +168,53 @@ describe("allocatePrizes", () => {
     expect(prizes.mostGoals?.memberName).toBe("Liam"); // 4 goals
   });
 });
+
+describe("knockout qualification", () => {
+  const A = ["GA1", "GA2", "GA3", "GA4"];
+  const teams: ScoringTeam[] = [
+    ...A.map((id) => ({ externalId: id, groupName: "Group A" })),
+    { externalId: "GB1", groupName: "Group B" },
+    { externalId: "GB2", groupName: "Group B" },
+  ];
+  const gm = (h: string, a: string, hg: number, ag: number): ScoringMatch => ({
+    roundOrd: 0,
+    groupName: "Group A",
+    status: "FT",
+    homeExternalId: h,
+    awayExternalId: a,
+    homeGoals: hg,
+    awayGoals: ag,
+    winnerExternalId: hg > ag ? h : ag > hg ? a : null,
+  });
+  const r32 = (home: string): ScoringMatch => ({
+    roundOrd: 1,
+    groupName: null,
+    status: "NS",
+    homeExternalId: home,
+    awayExternalId: null, // opponent still to be decided
+    homeGoals: null,
+    awayGoals: null,
+    winnerExternalId: null,
+  });
+  const matches: ScoringMatch[] = [
+    gm("GA1", "GA2", 2, 0), gm("GA1", "GA3", 2, 0), gm("GA1", "GA4", 2, 0),
+    gm("GA2", "GA3", 1, 0), gm("GA2", "GA4", 1, 0), gm("GA3", "GA4", 1, 0),
+    r32("GA1"), r32("GA2"),
+    // Group B unfinished, so not all groups are complete yet.
+    { roundOrd: 0, groupName: "Group B", status: "NS", homeExternalId: "GB1", awayExternalId: "GB2", homeGoals: null, awayGoals: null, winnerExternalId: null },
+  ];
+  const st = deriveTeamStates(teams, matches);
+
+  it("keeps qualified teams in once slotted into a knockout tie (even vs TBD)", () => {
+    expect(st.get("GA1")!.furthestRound).toBe(1);
+    expect(st.get("GA1")!.eliminated).toBe(false);
+    expect(teamPoints(st.get("GA1")!)).toBe(9); // 3 (reached R32) + 6 goals
+    expect(st.get("GA2")!.furthestRound).toBe(1);
+    expect(st.get("GA2")!.eliminated).toBe(false);
+  });
+
+  it("eliminates 4th place, but keeps a 3rd-placed team pending until all groups finish", () => {
+    expect(st.get("GA4")!.eliminated).toBe(true);
+    expect(st.get("GA3")!.eliminated).toBe(false);
+  });
+});

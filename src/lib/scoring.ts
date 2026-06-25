@@ -49,6 +49,41 @@ function matchWinner(m: ScoringMatch): string | null {
   return null; // level with no recorded winner (e.g. pens unknown)
 }
 
+// Final group-stage position (1..4) for each team whose group is complete.
+function computeGroupPositions(
+  teams: ScoringTeam[],
+  matches: ScoringMatch[],
+): Map<string, number> {
+  const positions = new Map<string, number>();
+  const byGroup = new Map<string, string[]>();
+  for (const t of teams) {
+    if (!byGroup.has(t.groupName)) byGroup.set(t.groupName, []);
+    byGroup.get(t.groupName)!.push(t.externalId);
+  }
+  for (const [group, ids] of byGroup) {
+    const gms = matches.filter((m) => m.roundOrd === 0 && m.groupName === group);
+    if (!gms.length || !gms.every(isFinished)) continue; // group not finished yet
+    const stat = new Map(ids.map((id) => [id, { p: 0, gd: 0, gf: 0 }]));
+    for (const m of gms) {
+      if (m.homeGoals == null || m.awayGoals == null) continue;
+      const h = m.homeExternalId, a = m.awayExternalId;
+      if (!h || !a || !stat.has(h) || !stat.has(a)) continue;
+      const sh = stat.get(h)!, sa = stat.get(a)!;
+      sh.gf += m.homeGoals; sh.gd += m.homeGoals - m.awayGoals;
+      sa.gf += m.awayGoals; sa.gd += m.awayGoals - m.homeGoals;
+      if (m.homeGoals > m.awayGoals) sh.p += 3;
+      else if (m.awayGoals > m.homeGoals) sa.p += 3;
+      else { sh.p += 1; sa.p += 1; }
+    }
+    const ranked = [...ids].sort((x, y) => {
+      const sx = stat.get(x)!, sy = stat.get(y)!;
+      return sy.p - sx.p || sy.gd - sx.gd || sy.gf - sx.gf || x.localeCompare(y);
+    });
+    ranked.forEach((id, i) => positions.set(id, i + 1));
+  }
+  return positions;
+}
+
 // Derive each team's furthest round, elimination + champion flags, and goals scored.
 export function deriveTeamStates(
   teams: ScoringTeam[],
@@ -62,23 +97,24 @@ export function deriveTeamStates(
   );
   const champion = finalMatch ? matchWinner(finalMatch) : null;
 
+  const positions = computeGroupPositions(teams, matches);
+  const allGroupsComplete = [...new Set(teams.map((t) => t.groupName))].every((g) => {
+    const gms = matches.filter((m) => m.roundOrd === 0 && m.groupName === g);
+    return gms.length > 0 && gms.every(isFinished);
+  });
+
   for (const team of teams) {
     const id = team.externalId;
-    const involves = (m: ScoringMatch) =>
-      m.homeExternalId === id || m.awayExternalId === id;
+    const teamMatches = matches.filter(
+      (m) => m.homeExternalId === id || m.awayExternalId === id,
+    );
 
-    const teamMatches = matches.filter(involves);
-
-    // Furthest round: highest round in which the team actually appears with a real opponent.
+    // Furthest round = the highest round the team appears in. Being slotted into a
+    // knockout tie counts even if the opponent slot is still "to be decided".
     let furthestRound = 0;
-    for (const m of teamMatches) {
-      if (m.roundOrd === 0 || bothAssigned(m)) {
-        furthestRound = Math.max(furthestRound, m.roundOrd);
-      }
-    }
+    for (const m of teamMatches) furthestRound = Math.max(furthestRound, m.roundOrd);
 
-    // Goals count as they happen (live + finished), matching the on-screen score. NS
-    // matches have null goals (contribute 0).
+    // Goals count as they happen (live + finished), matching the on-screen score.
     const goalsFor = teamMatches.reduce((sum, m) => {
       if (m.homeExternalId === id) return sum + (m.homeGoals ?? 0);
       if (m.awayExternalId === id) return sum + (m.awayGoals ?? 0);
@@ -87,28 +123,26 @@ export function deriveTeamStates(
 
     const isChampion = champion === id;
 
-    // Elimination.
     let eliminated = false;
     if (!isChampion) {
-      // Lost a finished knockout match?
       const lostKnockout = teamMatches.some(
         (m) =>
           m.roundOrd >= 1 &&
-          bothAssigned(m) &&
           isFinished(m) &&
+          bothAssigned(m) &&
           matchWinner(m) !== null &&
           matchWinner(m) !== id,
       );
-      // Failed to advance from a completed group?
       const groupMatches = matches.filter(
         (m) => m.roundOrd === 0 && m.groupName === team.groupName,
       );
-      const groupComplete =
-        groupMatches.length > 0 && groupMatches.every(isFinished);
-      const reachedKnockout = teamMatches.some(
-        (m) => m.roundOrd >= 1 && bothAssigned(m),
-      );
-      eliminated = lostKnockout || (groupComplete && !reachedKnockout);
+      const groupComplete = groupMatches.length > 0 && groupMatches.every(isFinished);
+      const reachedKnockout = teamMatches.some((m) => m.roundOrd >= 1);
+      const pos = positions.get(id); // 1..4 once the group is finished
+      eliminated =
+        lostKnockout ||
+        (groupComplete && pos === 4) || // 4th place never qualifies
+        (allGroupsComplete && groupComplete && !reachedKnockout); // missed the best-thirds cut
     }
 
     states.set(id, { externalId: id, furthestRound, eliminated, isChampion, goalsFor });

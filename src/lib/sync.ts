@@ -41,26 +41,34 @@ export async function applySnapshot(snapshot: ProviderSnapshot): Promise<SyncRes
   for (const f of snapshot.fixtures) {
     const homeTeamId = f.homeExternalId ? idByExternal.get(f.homeExternalId) ?? null : null;
     const awayTeamId = f.awayExternalId ? idByExternal.get(f.awayExternalId) ?? null : null;
-    const schedule = {
+    // On UPDATE, never null-out a team the overlay has resolved (knockout slots come from
+    // openfootball as placeholders → null; the ESPN overlay fills them).
+    const update: Record<string, unknown> = {
       round: f.round,
       roundOrd: f.roundOrd,
       groupName: f.groupName,
       kickoff: new Date(f.kickoff),
       venue: f.venue,
-      homeTeamId,
-      awayTeamId,
     };
+    if (homeTeamId) update.homeTeamId = homeTeamId;
+    if (awayTeamId) update.awayTeamId = awayTeamId;
     await prisma.match.upsert({
       where: { externalId: f.externalId },
       create: {
         externalId: f.externalId,
-        ...schedule,
+        round: f.round,
+        roundOrd: f.roundOrd,
+        groupName: f.groupName,
+        kickoff: new Date(f.kickoff),
+        venue: f.venue,
+        homeTeamId,
+        awayTeamId,
         status: f.status,
         homeGoals: f.homeGoals,
         awayGoals: f.awayGoals,
         winnerTeamId: f.winnerExternalId ? idByExternal.get(f.winnerExternalId) ?? null : null,
       },
-      update: schedule,
+      update,
     });
   }
 
@@ -176,37 +184,61 @@ async function applyLiveOverlay(): Promise<number | null> {
   // and our schedule source don't silently drop a result.
   const idByKey = new Map(teams.map((t) => [teamKey(t.name), t.id]));
   const dbMatches = await prisma.match.findMany();
+
   const byPair = new Map<string, (typeof dbMatches)[number]>();
+  const koByMinute = new Map<string, (typeof dbMatches)[number][]>();
   for (const m of dbMatches) {
     if (m.homeTeamId && m.awayTeamId) byPair.set(`${m.homeTeamId}|${m.awayTeamId}`, m);
+    if (m.roundOrd >= 1) {
+      const k = minuteKey(m.kickoff);
+      if (!koByMinute.has(k)) koByMinute.set(k, []);
+      koByMinute.get(k)!.push(m);
+    }
   }
 
+  // Resolve each ESPN fixture's team ids, then process fully-resolved fixtures first so the
+  // exact team-pair match wins before we fall back to slotting partial knockout ties by time.
+  const resolved = snapshot.fixtures.map((f) => ({
+    f,
+    hId: f.homeExternalId ? idByKey.get(teamKey(f.homeExternalId)) ?? null : null,
+    aId: f.awayExternalId ? idByKey.get(teamKey(f.awayExternalId)) ?? null : null,
+  }));
+  resolved.sort(
+    (x, y) => Number(!!y.hId) + Number(!!y.aId) - (Number(!!x.hId) + Number(!!x.aId)),
+  );
+
+  const used = new Set<string>();
   let updated = 0;
-  for (const f of snapshot.fixtures) {
-    if (!f.homeExternalId || !f.awayExternalId) continue;
-    const homeId = idByKey.get(teamKey(f.homeExternalId));
-    const awayId = idByKey.get(teamKey(f.awayExternalId));
-    if (!homeId || !awayId) continue;
-    const match = byPair.get(`${homeId}|${awayId}`);
-    if (!match) continue;
-    const winnerTeamId = f.winnerExternalId ? idByKey.get(teamKey(f.winnerExternalId)) ?? null : null;
-    if (
-      match.status === f.status &&
-      match.homeGoals === f.homeGoals &&
-      match.awayGoals === f.awayGoals &&
-      match.winnerTeamId === winnerTeamId
-    ) {
-      continue; // no change
+  for (const { f, hId, aId } of resolved) {
+    let match: (typeof dbMatches)[number] | undefined;
+    if (hId && aId) match = byPair.get(`${hId}|${aId}`);
+    if (!match) {
+      // Knockout slot: match by kick-off time (one or both teams may still be TBD).
+      match = (koByMinute.get(minuteKey(f.kickoff)) ?? []).find((m) => !used.has(m.id));
     }
-    await prisma.match.update({
-      where: { id: match.id },
-      data: { status: f.status, homeGoals: f.homeGoals, awayGoals: f.awayGoals, winnerTeamId },
-    });
+    if (!match || used.has(match.id)) continue;
+    used.add(match.id);
+
+    const winnerTeamId = f.winnerExternalId ? idByKey.get(teamKey(f.winnerExternalId)) ?? null : null;
+    const data: Record<string, unknown> = {};
+    if (hId && match.homeTeamId !== hId) data.homeTeamId = hId; // only ever set a resolved team
+    if (aId && match.awayTeamId !== aId) data.awayTeamId = aId;
+    if (match.status !== f.status) data.status = f.status;
+    if (match.homeGoals !== f.homeGoals) data.homeGoals = f.homeGoals;
+    if (match.awayGoals !== f.awayGoals) data.awayGoals = f.awayGoals;
+    if (match.winnerTeamId !== winnerTeamId) data.winnerTeamId = winnerTeamId;
+    if (Object.keys(data).length === 0) continue;
+
+    await prisma.match.update({ where: { id: match.id }, data });
     updated++;
   }
 
   if (updated > 0) await recomputeCachedStates();
   return updated;
+}
+
+function minuteKey(d: Date | string): string {
+  return new Date(d).toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
 }
 
 // Entry point for the cron route, the live poller, and the admin button.

@@ -46,13 +46,10 @@ export class EspnProvider implements FootballDataProvider {
 
   async getSnapshot(): Promise<ProviderSnapshot> {
     const now = Date.now();
-    // Cover the UTC boundary (late games show under the adjacent US date).
-    const urls = [
-      BASE,
-      `${BASE}?dates=${ymd(new Date(now - 86400000))}`,
-      `${BASE}?dates=${ymd(new Date(now))}`,
-      `${BASE}?dates=${ymd(new Date(now + 86400000))}`,
-    ];
+    // Yesterday → +10 days: covers live/finished games AND upcoming knockout fixtures, so
+    // qualified teams get slotted into their knockout ties ahead of kick-off.
+    const urls = [BASE];
+    for (let d = -1; d <= 10; d++) urls.push(`${BASE}?dates=${ymd(new Date(now + d * 86400000))}`);
 
     const seen = new Set<string>();
     const fixtures: NormalizedFixture[] = [];
@@ -76,12 +73,13 @@ export class EspnProvider implements FootballDataProvider {
         if (!h || !a) continue;
 
         const state = e.status?.type?.state; // "pre" | "in" | "post"
-        if (state !== "in" && state !== "post") continue; // only live/finished games
-
+        const played = state === "in" || state === "post";
         const detail: string = e.status?.type?.detail ?? "";
         const status =
-          state === "post" ? "FT" : detail.toLowerCase().includes("half") ? "HT" : "2H";
+          state === "post" ? "FT" : state === "in" ? (detail.toLowerCase().includes("half") ? "HT" : "2H") : "NS";
 
+        // Real team names resolve via canon(); placeholders ("Group F 2nd Place", "W101")
+        // pass through and simply won't match a real team (left as TBD).
         const home = canon(h.team?.displayName);
         const away = canon(a.team?.displayName);
         const hg = parseInt(h.score, 10);
@@ -104,8 +102,8 @@ export class EspnProvider implements FootballDataProvider {
           status,
           homeExternalId: home,
           awayExternalId: away,
-          homeGoals: isNaN(hg) ? null : hg,
-          awayGoals: isNaN(ag) ? null : ag,
+          homeGoals: played && !isNaN(hg) ? hg : null,
+          awayGoals: played && !isNaN(ag) ? ag : null,
           winnerExternalId: winner,
         });
       }
